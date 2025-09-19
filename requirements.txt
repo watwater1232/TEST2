@@ -1,0 +1,44 @@
+# Flask Web Framework
+Flask==2.3.3
+Werkzeug==2.3.7
+
+# CORS support for API
+Flask-CORS==4.0.0
+
+# Redis client for data storage
+redis==5.0.1
+
+# HTTP client library (optional, for external API calls)
+requests==2.31.0
+
+# JSON Web Token support (optional, for authentication)
+PyJWT==2.8.0
+
+# Environment variable management
+python-dotenv==1.0.0
+
+# Date and time utilities
+python-dateutil==2.8.2
+
+# WSGI HTTP Server for production
+gunicorn==21.2.0
+
+# Security utilities
+cryptography==41.0.7
+
+# Validation library
+marshmallow==3.20.1
+
+# Rate limiting (optional)
+Flask-Limiter==3.5.0
+
+# Logging utilities
+structlog==23.1.0
+
+# Testing framework (development)
+pytest==7.4.2
+pytest-flask==1.2.0
+
+# Code formatting (development)
+black==23.9.1
+flake8==6.1.0
