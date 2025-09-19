@@ -10,7 +10,7 @@ app = Flask(__name__, static_folder="static")
 CORS(app)
 
 # Redis connection
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+redis_url = os.getenv("REDIS_URL", "redis://red-d2m4543uibrs73fqt7c0:6379")
 try:
     redis_client = redis.from_url(redis_url, decode_responses=True)
     redis_client.ping()
