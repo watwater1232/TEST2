@@ -10,7 +10,7 @@ app = Flask(__name__, static_folder="static")
 CORS(app)
 
 # Redis connection
-redis_url = os.getenv("REDIS_URL", "redis://red-d2m4543uibrs73fqt7c0:6379")
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 try:
     redis_client = redis.from_url(redis_url, decode_responses=True)
     redis_client.ping()
@@ -35,7 +35,11 @@ def get_current_time():
 
 def get_next_id(key_prefix):
     counter_key = f"{key_prefix}:counter"
-    return redis_client.incr(counter_key)
+    try:
+        return redis_client.incr(counter_key)
+    except Exception as e:
+        print(f"Error get_next_id for {key_prefix}: {e}")
+        return None
 
 # ================== PRODUCTS ==================
 def get_all_products():
@@ -51,7 +55,8 @@ def get_all_products():
                     data["id"] = int(data["id"])
                     data["price"] = int(data["price"])
                     data["stock"] = int(data["stock"])
-                except:
+                except (ValueError, KeyError) as e:
+                    print(f"Error parsing product data for {key}: {e}")
                     continue
                 products.append(data)
         return sorted(products, key=lambda x: x["id"])
@@ -61,9 +66,20 @@ def get_all_products():
 
 def save_product(product_data):
     try:
-        if "id" not in product_data:
-            product_data["id"] = get_next_id(PRODUCTS_KEY)
-        key = f"{PRODUCTS_KEY}:{product_data['id']}"
+        if not product_data:
+            print("Error save_product: No product data provided")
+            return None
+        required_fields = ['name', 'category', 'price', 'stock']
+        for field in required_fields:
+            if field not in product_data:
+                print(f"Error save_product: Missing field {field}")
+                return None
+        product_id = product_data.get("id") or get_next_id(PRODUCTS_KEY)
+        if not product_id:
+            print("Error save_product: Failed to generate product ID")
+            return None
+        key = f"{PRODUCTS_KEY}:{product_id}"
+        product_data["id"] = product_id
         product_data.setdefault("created_at", get_current_time())
         product_data["updated_at"] = get_current_time()
         redis_client.hset(key, mapping=product_data)
@@ -102,7 +118,8 @@ def get_all_orders():
                         data["items"] = json.loads(data.get("items", "[]"))
                     except:
                         data["items"] = []
-                except:
+                except (ValueError, KeyError) as e:
+                    print(f"Error parsing order data for {key}: {e}")
                     continue
                 orders.append(data)
         return sorted(orders, key=lambda x: x["id"], reverse=True)
@@ -112,10 +129,24 @@ def get_all_orders():
 
 def save_order(order_data):
     try:
-        if "id" not in order_data:
-            order_data["id"] = get_next_id(ORDERS_KEY)
+        if not order_data:
+            print("Error save_order: No order data provided")
+            return None
+        required_fields = ['userId', 'items', 'total']
+        for field in required_fields:
+            if field not in order_data:
+                print(f"Error save_order: Missing field {field}")
+                return None
+        if not order_data['items']:
+            print("Error save_order: Order must contain items")
+            return None
+        order_id = get_next_id(ORDERS_KEY)
+        if not order_id:
+            print("Error save_order: Failed to generate order ID")
+            return None
 
-        key = f"{ORDERS_KEY}:{order_data['id']}"
+        key = f"{ORDERS_KEY}:{order_id}"
+        order_data["id"] = order_id
         order_data.setdefault("created_at", get_current_time())
         order_data.setdefault("status", "pending")
 
@@ -135,9 +166,8 @@ def save_order(order_data):
             if referrer:
                 referrer_id = int(referrer['id'])
                 referrer_user = get_user(referrer_id)
-                # Проверяем, что это первый заказ пользователя
                 user_orders = get_orders_by_user(order_data['userId'])
-                if len(user_orders) == 1:  # Это первый заказ (включая текущий)
+                if len(user_orders) == 1:
                     bonus = int(order_data['total'] * 0.1)
                     referrer_user['bonus'] = int(referrer_user.get('bonus', 0)) + bonus
                     referrer_user['referrals'] = json.loads(referrer_user.get('referrals', '[]'))
@@ -218,6 +248,9 @@ def get_user(user_id):
 
 def save_user(user_data):
     try:
+        if not user_data:
+            print("Error save_user: No user data provided")
+            return None
         key = f"{USERS_KEY}:{user_data['id']}"
         referrals = user_data.get("referrals", [])
         user_data["referrals"] = json.dumps(referrals)
@@ -243,7 +276,8 @@ def get_all_promos():
                     data["discount"] = int(data["discount"])
                     data["uses"] = int(data["uses"])
                     data["used"] = int(data.get("used", 0))
-                except:
+                except (ValueError, KeyError) as e:
+                    print(f"Error parsing promo data for {key}: {e}")
                     continue
                 promos.append(data)
         return promos
@@ -253,7 +287,18 @@ def get_all_promos():
 
 def save_promo(promo_data):
     try:
+        if not promo_data:
+            print("Error save_promo: No promo data provided")
+            return None
+        required_fields = ['code', 'discount', 'uses']
+        for field in required_fields:
+            if field not in promo_data:
+                print(f"Error save_promo: Missing field {field}")
+                return None
         key = f"{PROMOS_KEY}:{promo_data['code']}"
+        if redis_client.exists(key):
+            print(f"Error save_promo: Promo code {promo_data['code']} already exists")
+            return None
         promo_data.setdefault("used", 0)
         promo_data.setdefault("created_at", get_current_time())
         promo_data["updated_at"] = get_current_time()
@@ -521,16 +566,19 @@ def api_check_admin():
 
 # INIT DATA
 def init_sample_data():
-    if not get_all_products():
-        for p in [
-            {"name": "Жидкость Mango", "category": "liquids", "price": 450, "stock": 10, "description": "Вкусный манго", "emoji": "🥭"},
-            {"name": "Картридж JUUL", "category": "cartridges", "price": 300, "stock": 20, "description": "Оригинальные картриджи", "emoji": "💨"},
-            {"name": "Под RELX Mint", "category": "pods", "price": 280, "stock": 12, "description": "Мятный вкус", "emoji": "🔥"},
-            {"name": "Vaporesso XROS 3", "category": "devices", "price": 2800, "stock": 5, "description": "Компактная POD-система", "emoji": "⚡"}
-        ]:
-            save_product(p)
-        print("✅ Sample products added")
-    update_stats()
+    try:
+        if not get_all_products():
+            for p in [
+                {"name": "Жидкость Mango", "category": "liquids", "price": 450, "stock": 10, "description": "Вкусный манго", "emoji": "🥭"},
+                {"name": "Картридж JUUL", "category": "cartridges", "price": 300, "stock": 20, "description": "Оригинальные картриджи", "emoji": "💨"},
+                {"name": "Под RELX Mint", "category": "pods", "price": 280, "stock": 12, "description": "Мятный вкус", "emoji": "🔥"},
+                {"name": "Vaporesso XROS 3", "category": "devices", "price": 2800, "stock": 5, "description": "Компактная POD-система", "emoji": "⚡"}
+            ]:
+                save_product(p)
+            print("✅ Sample products added")
+        update_stats()
+    except Exception as e:
+        print(f"Error init_sample_data: {e}")
 
 if __name__ == "__main__":
     print("🚀 Vape Shop Server starting...")
